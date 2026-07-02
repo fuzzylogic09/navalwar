@@ -70,6 +70,9 @@ function flatToGrid(flat) {
 function cellsToObj(cells) {
   return cells.map(([r, c]) => ({ r, c }));
 }
+function cellsFromObj(cells) {
+  return cells.map(({ r, c }) => [r, c]);
+}
 
 // ---------- Utilitaires DOM ----------
 const $ = (sel) => document.querySelector(sel);
@@ -177,9 +180,29 @@ function renderMyGames() {
       <div class="row-actions"></div>
     `;
     const actions = row.querySelector('.row-actions');
-    renderDeleteControls(actions, g);
+    if (g.status !== 'finished') {
+      const resumeBtn = document.createElement('button');
+      resumeBtn.className = 'btn btn-primary';
+      resumeBtn.textContent = 'Reprendre';
+      resumeBtn.addEventListener('click', () => resumeGame(g));
+      actions.appendChild(resumeBtn);
+    }
+    const deleteSlot = document.createElement('div');
+    deleteSlot.className = 'row-actions'; // même style, conteneur indépendant
+    actions.appendChild(deleteSlot);
+    renderDeleteControls(deleteSlot, g);
     list.appendChild(row);
   });
+}
+
+async function resumeGame(g) {
+  currentGameId = g.id;
+  myRole = g.hostUid === uid ? 'host' : 'guest';
+  if (g.status === 'playing') {
+    await enterGame(g);
+  } else {
+    await enterPlacement();
+  }
 }
 
 function renderDeleteControls(container, g) {
@@ -290,7 +313,7 @@ $('#btnCreateGame').addEventListener('click', async () => {
   });
   currentGameId = ref.id;
   myRole = 'host';
-  enterPlacement();
+  await enterPlacement();
 });
 
 async function joinGame(gameId) {
@@ -307,7 +330,7 @@ async function joinGame(gameId) {
   });
   currentGameId = gameId;
   myRole = 'guest';
-  enterPlacement();
+  await enterPlacement();
 }
 
 function escapeHtml(str) {
@@ -319,18 +342,39 @@ function escapeHtml(str) {
 // ============================================================
 // ÉCRAN : PLACEMENT DE LA FLOTTE
 // ============================================================
-function enterPlacement() {
+async function enterPlacement() {
   if (unsubList) unsubList();
-  placementGrid = emptyGrid();
-  placedShips = {};
-  selectedShipId = FLEET[0].id;
-  placementOrientation = 'H';
   $('#placementGameCode').textContent = currentGameId.slice(0,6).toUpperCase();
-  renderFleetList();
-  renderPlacementBoard();
-  $('#btnReady').disabled = true;
-  $('#placementStatus').textContent = '';
+  $('#placementStatus').dataset.waiting = '';
   showScreen('screen-placement');
+
+  // Reprise : si j'ai déjà enregistré ma flotte pour cette partie (ex. je reviens
+  // après avoir quitté), on la recharge au lieu de repartir d'un plateau vide.
+  const myPrivSnap = await getDoc(doc(db, 'games', currentGameId, 'private', uid));
+  const already = myPrivSnap.exists() && myPrivSnap.data().ready;
+
+  if (already) {
+    const data = myPrivSnap.data();
+    placementGrid = flatToGrid(data.grid);
+    placedShips = {};
+    data.ships.forEach(s => { placedShips[s.id] = { cells: cellsFromObj(s.cells) }; });
+    selectedShipId = null;
+    myFleetState = { ships: data.ships, grid: placementGrid };
+    renderFleetList();
+    renderPlacementBoard();
+    $('#btnReady').disabled = true;
+    $('#placementStatus').textContent = "Flotte déjà enregistrée. En attente de l'adversaire…";
+    $('#placementStatus').dataset.waiting = '1';
+  } else {
+    placementGrid = emptyGrid();
+    placedShips = {};
+    selectedShipId = FLEET[0].id;
+    placementOrientation = 'H';
+    renderFleetList();
+    renderPlacementBoard();
+    $('#btnReady').disabled = true;
+    $('#placementStatus').textContent = '';
+  }
 
   if (myRole === 'host') {
     // host attend qu'un adversaire rejoigne pour passer en 'placing' (déjà 'waiting')

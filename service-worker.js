@@ -1,8 +1,13 @@
 // Service worker — met en cache la coquille de l'application (app shell)
-// pour un lancement rapide et un fonctionnement hors-ligne du menu.
+// pour un fonctionnement hors-ligne du menu.
 // Le contenu dynamique (parties, tirs) passe toujours par Firebase, jamais par ce cache.
+//
+// Stratégie "réseau d'abord" : on essaie toujours de récupérer la dernière version
+// en ligne ; le cache ne sert que de secours si le réseau est indisponible.
+// (Une stratégie "cache d'abord" empêcherait les mises à jour de code de s'appliquer
+// tant que le cache n'est pas explicitement vidé — ce qu'on veut éviter ici.)
 
-const CACHE_NAME = 'bataille-navale-v1';
+const CACHE_NAME = 'bataille-navale-v2';
 const APP_SHELL = [
   './',
   './index.html',
@@ -40,15 +45,12 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(req).then((cached) => {
-      const network = fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(req)
+      .then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        return res;
+      })
+      .catch(() => caches.match(req))
   );
 });
