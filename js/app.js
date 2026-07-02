@@ -53,6 +53,24 @@ function emptyGrid() {
   return Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
 }
 
+// ---------- Conversion pour Firestore ----------
+// Firestore n'accepte pas les tableaux imbriqués (array of arrays).
+// On stocke donc les grilles 10x10 sous forme de tableau à plat (100 éléments),
+// et les coordonnées de cases sous forme d'objets {r,c} plutôt que [r,c].
+function gridToFlat(grid) {
+  return grid.flat();
+}
+function flatToGrid(flat) {
+  const g = [];
+  for (let r = 0; r < SIZE; r++) {
+    g.push(flat.slice(r * SIZE, r * SIZE + SIZE));
+  }
+  return g;
+}
+function cellsToObj(cells) {
+  return cells.map(([r, c]) => ({ r, c }));
+}
+
 // ---------- Utilitaires DOM ----------
 const $ = (sel) => document.querySelector(sel);
 const screens = document.querySelectorAll('[data-screen]');
@@ -370,14 +388,17 @@ function checkAllPlaced() {
 }
 
 $('#btnReady').addEventListener('click', async () => {
-  const ships = FLEET.map(s => ({ id: s.id, name: s.name, size: s.size, hits: 0, cells: placedShips[s.id].cells }));
+  const ships = FLEET.map(s => ({
+    id: s.id, name: s.name, size: s.size, hits: 0,
+    cells: cellsToObj(placedShips[s.id].cells),
+  }));
   await setDoc(doc(db, 'games', currentGameId, 'private', uid), {
-    grid: placementGrid,
+    grid: gridToFlat(placementGrid),
     ships,
     ready: true,
   });
   await setDoc(doc(db, 'games', currentGameId, 'shots', uid), {
-    grid: emptyGrid(),
+    grid: gridToFlat(emptyGrid()),
   }, { merge: true });
 
   $('#btnReady').disabled = true;
@@ -427,7 +448,8 @@ async function enterGame(g) {
 
   // recharger mon état de flotte privé si besoin (ex: reconnexion)
   const mySnap = await getDoc(doc(db, 'games', currentGameId, 'private', uid));
-  myFleetState = mySnap.data();
+  const myData = mySnap.data();
+  myFleetState = { ...myData, grid: flatToGrid(myData.grid) };
 
   showScreen('screen-game');
   renderAttackBoard();
@@ -454,13 +476,15 @@ async function enterGame(g) {
   });
 
   unsubMyShots = onSnapshot(doc(db, 'games', currentGameId, 'shots', uid), (snap) => {
-    myShotsGrid = snap.data()?.grid ?? emptyGrid();
+    const flat = snap.data()?.grid;
+    myShotsGrid = flat ? flatToGrid(flat) : emptyGrid();
     renderAttackBoard();
   });
 
   const oppShotsRef = doc(db, 'games', currentGameId, 'shots', oppUid);
   unsubOppShots = onSnapshot(oppShotsRef, (snap) => {
-    incomingGrid = snap.data()?.grid ?? emptyGrid();
+    const flat = snap.data()?.grid;
+    incomingGrid = flat ? flatToGrid(flat) : emptyGrid();
     renderDefenseBoard();
   });
 }
@@ -561,8 +585,9 @@ async function resolveIncomingShot(g) {
     const myBoardRef = doc(db, 'games', currentGameId, 'private', uid);
     const myBoardSnap = await getDoc(myBoardRef);
     const myBoard = myBoardSnap.data();
+    const myGrid2D = flatToGrid(myBoard.grid);
 
-    const shipId = myBoard.grid[row][col];
+    const shipId = myGrid2D[row][col];
     let result = 'miss';
     let updatedShips = myBoard.ships;
 
@@ -580,19 +605,20 @@ async function resolveIncomingShot(g) {
 
     const attackerShotsRef = doc(db, 'games', currentGameId, 'shots', attackerUid);
     const attackerShotsSnap = await getDoc(attackerShotsRef);
-    const attackerGrid = attackerShotsSnap.data()?.grid ?? emptyGrid();
+    const attackerFlat = attackerShotsSnap.data()?.grid;
+    const attackerGrid = attackerFlat ? flatToGrid(attackerFlat) : emptyGrid();
 
     if (result === 'sunk') {
       // révèle tout le navire coulé sur la grille de l'attaquant
       const ship = updatedShips.find(s => s.id === shipId);
-      ship.cells.forEach(([rr, cc]) => { attackerGrid[rr][cc] = 'sunk'; });
+      ship.cells.forEach(({ r: rr, c: cc }) => { attackerGrid[rr][cc] = 'sunk'; });
     } else {
       attackerGrid[row][col] = result;
     }
 
     const batch = writeBatch(db);
     batch.update(myBoardRef, { ships: updatedShips });
-    batch.set(attackerShotsRef, { grid: attackerGrid }, { merge: true });
+    batch.set(attackerShotsRef, { grid: gridToFlat(attackerGrid) }, { merge: true });
 
     const gameRef = doc(db, 'games', currentGameId);
     if (allSunk) {
