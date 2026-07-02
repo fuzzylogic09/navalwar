@@ -176,6 +176,8 @@ $('#btnCreateGame').addEventListener('click', async () => {
     turn: null,              // 'host' | 'guest'
     pendingShot: null,
     winner: null,
+    hostReady: false,
+    guestReady: false,
     createdAt: serverTimestamp(),
   });
   currentGameId = ref.id;
@@ -406,29 +408,27 @@ $('#btnReady').addEventListener('click', async () => {
   $('#placementStatus').dataset.waiting = '1';
   myFleetState = { ships, grid: placementGrid };
 
-  // Si l'autre joueur est déjà prêt, on peut démarrer.
-  await maybeStartGame();
+  // On signale que je suis prêt via un champ PUBLIC (les deux joueurs peuvent
+  // le lire/écrire) — impossible de lire le "ready" de l'adversaire depuis son
+  // document privé, qui reste protégé par les règles de sécurité.
+  await updateDoc(doc(db, 'games', currentGameId), {
+    [`${myRole}Ready`]: true,
+  });
 });
 
-async function maybeStartGame() {
+// Le document public games/{id} contient déjà hostReady/guestReady.
+// Dès que les deux sont vrais, on démarre la partie. Un seul des deux clients
+// suffit à déclencher l'update (les deux peuvent le tenter sans risque, la
+// valeur écrite est identique).
+async function maybeStartGame(g) {
+  if (!g.hostReady || !g.guestReady || g.status === 'playing' || g.status === 'finished') return;
   const gameRef = doc(db, 'games', currentGameId);
-  const gameSnap = await getDoc(gameRef);
-  const g = gameSnap.data();
-  if (!g.guestUid) return; // personne en face pour l'instant
-
-  const hostReady = (await getDoc(doc(db, 'games', currentGameId, 'private', g.hostUid))).data()?.ready;
-  const guestReady = (await getDoc(doc(db, 'games', currentGameId, 'private', g.guestUid))).data()?.ready;
-
-  if (hostReady && guestReady && g.status !== 'playing') {
-    await updateDoc(gameRef, { status: 'playing', turn: 'host' });
-  }
+  await updateDoc(gameRef, { status: 'playing', turn: 'host' });
 }
 
 function handlePostPlacementTransition(g) {
   if (!g) return;
-  if (g.status === 'placing' && myRole === 'host') {
-    // l'adversaire vient de rejoindre pendant qu'on est en train de placer
-  }
+  maybeStartGame(g);
   if (g.status === 'playing') {
     enterGame(g);
   }
