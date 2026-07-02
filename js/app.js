@@ -215,6 +215,15 @@ function listenMyGames() {
       }
       const data = { id, ...change.doc.data() };
       myGamesMap.set(id, data);
+
+      // Resolve incoming shots in the background, even for games I'm not
+      // currently looking at — otherwise the defender would only see the
+      // result (and the turn would only flip) once they reopen that game.
+      if (data.status === 'playing' && data.pendingShot && data.pendingShot.by !== uid) {
+        const role = data.hostUid === uid ? 'host' : 'guest';
+        resolveIncomingShot(id, role, data).catch(err => console.error('resolveIncomingShot (background):', err));
+      }
+
       const nowMyTurn = computeIsMyTurn(data);
       const wasMyTurn = myGamesTurnState.get(id);
       if (!isFirstRef.value && wasMyTurn === false && nowMyTurn === true) {
@@ -291,7 +300,7 @@ function renderMyGames() {
 async function resumeGame(g) {
   currentGameId = g.id;
   myRole = g.hostUid === uid ? 'host' : 'guest';
-  if (g.status === 'playing') {
+  if (g.status === 'playing' || g.status === 'finished') {
     await enterGame(g);
   } else {
     await enterPlacement();
@@ -710,7 +719,7 @@ async function enterGame(g) {
 
     // If a shot is pending AND it targets me (I'm the defender), resolve it.
     if (data.pendingShot && data.pendingShot.by !== uid) {
-      await resolveIncomingShot(data);
+      await resolveIncomingShot(currentGameId, myRole, data);
     }
     renderAttackBoard();
     renderDefenseBoard();
@@ -814,16 +823,20 @@ async function fireShot(r, c) {
 }
 
 // ---------- Resolve an incoming shot (I'm the defender) ----------
-async function resolveIncomingShot(g) {
-  const { by, row, col } = g.pendingShot;
-  const attackerUid = by;
-  const attackerRole = myRole === 'host' ? 'guest' : 'host';
+// Parameterized by gameId/role so it can also run in the background for
+// games I'm not currently looking at (see listenMyGames below) — otherwise
+// a shot would only get resolved once the defender reopens that game.
+const resolvingGames = new Set();
 
-  // avoid resolving twice (several events can arrive in quick succession)
-  if (resolveIncomingShot._busy) return;
-  resolveIncomingShot._busy = true;
+async function resolveIncomingShot(gameId, myRoleForGame, g) {
+  if (resolvingGames.has(gameId)) return; // avoid resolving twice at once
+  resolvingGames.add(gameId);
   try {
-    const myBoardRef = doc(db, 'games', currentGameId, 'private', uid);
+    const { by, row, col } = g.pendingShot;
+    const attackerUid = by;
+    const attackerRole = myRoleForGame === 'host' ? 'guest' : 'host';
+
+    const myBoardRef = doc(db, 'games', gameId, 'private', uid);
     const myBoardSnap = await getDoc(myBoardRef);
     const myBoard = myBoardSnap.data();
     const myGrid2D = flatToGrid(myBoard.grid);
@@ -844,7 +857,7 @@ async function resolveIncomingShot(g) {
 
     const allSunk = updatedShips.every(s => s.hits >= s.size);
 
-    const attackerShotsRef = doc(db, 'games', currentGameId, 'shots', attackerUid);
+    const attackerShotsRef = doc(db, 'games', gameId, 'shots', attackerUid);
     const attackerShotsSnap = await getDoc(attackerShotsRef);
     const attackerFlat = attackerShotsSnap.data()?.grid;
     const attackerGrid = attackerFlat ? flatToGrid(attackerFlat) : emptyGrid();
@@ -861,7 +874,7 @@ async function resolveIncomingShot(g) {
     batch.update(myBoardRef, { ships: updatedShips });
     batch.set(attackerShotsRef, { grid: gridToFlat(attackerGrid) }, { merge: true });
 
-    const gameRef = doc(db, 'games', currentGameId);
+    const gameRef = doc(db, 'games', gameId);
     if (allSunk) {
       batch.update(gameRef, {
         pendingShot: null,
@@ -871,12 +884,12 @@ async function resolveIncomingShot(g) {
     } else {
       batch.update(gameRef, {
         pendingShot: null,
-        turn: myRole, // it's now the defender's (my) turn to shoot
+        turn: myRoleForGame, // it's now the defender's (my) turn to shoot
       });
     }
     await batch.commit();
   } finally {
-    resolveIncomingShot._busy = false;
+    resolvingGames.delete(gameId);
   }
 }
 
