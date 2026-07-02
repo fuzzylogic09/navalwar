@@ -83,6 +83,10 @@ body {
   font-size: 1.05rem;
   color: var(--foam-100);
 }
+@media (max-width: 400px) {
+  .brand-text { font-size: 0.85rem; letter-spacing: 0.04em; }
+  .pilot-name { font-size: 0.75rem; }
+}
 .brand-blip {
   width: 10px; height: 10px; border-radius: 50%;
   background: var(--sonar-green);
@@ -99,6 +103,10 @@ body {
 .pilot-name { font-size: 0.85rem; color: var(--sonar-green); font-weight: 600; }
 
 #app { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
+@media (max-width: 400px) {
+  #app { padding: 16px 10px 48px; }
+  .topbar { padding: 12px 14px; }
+}
 
 .screen { animation: fadeIn 0.35s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -109,6 +117,9 @@ body {
   border-radius: var(--radius);
   padding: 28px 24px;
   box-shadow: 0 20px 40px -20px rgba(0,0,0,0.6);
+}
+@media (max-width: 400px) {
+  .panel { padding: 16px 12px; }
 }
 .panel-center { max-width: 460px; margin: 40px auto; text-align: center; }
 .panel-wide { max-width: 980px; }
@@ -226,16 +237,49 @@ input[type="text"]::placeholder { color: var(--steel-400); }
   border-radius: var(--radius);
   padding: 12px 14px;
   gap: 10px;
+  flex-wrap: wrap;
 }
-.game-row-info { display: flex; flex-direction: column; gap: 2px; }
+.game-row-info { display: flex; flex-direction: column; gap: 2px; min-width: 140px; }
 .game-row-host { font-weight: 600; color: var(--foam-100); font-size: 0.9rem; }
 .game-row-meta { font-size: 0.72rem; color: var(--steel-400); }
 .game-row .btn { padding: 8px 14px; font-size: 0.78rem; white-space: nowrap; }
+.row-actions { display: flex; align-items: center; }
+
+.status-badge {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--navy-600);
+  color: var(--steel-400);
+  width: fit-content;
+}
+.status-badge.waiting { color: var(--sonar-green); border-color: var(--sonar-green-dim); }
+.status-badge.playing { color: var(--amber); border-color: var(--amber); }
+.status-badge.finished { color: var(--steel-400); }
+
+.btn-danger {
+  background: var(--alert-red);
+  color: var(--navy-950);
+}
+.btn-danger:hover { box-shadow: 0 0 0 3px rgba(255,107,74,0.25); }
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.confirm-text {
+  font-size: 0.76rem;
+  color: var(--alert-red);
+  white-space: nowrap;
+}
 
 /* ===========================================================
    BOARDS (GRID)
    =========================================================== */
-.board-wrap { display: flex; justify-content: center; }
 .boards-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -246,18 +290,35 @@ input[type="text"]::placeholder { color: var(--steel-400); }
   .boards-layout { grid-template-columns: 1fr; }
 }
 
+.board-wrap {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px; /* room for scrollbar without clipping */
+}
+
 .board {
   --cell: 30px;
+  --label: 20px;
+  --gap: 2px;
   display: grid;
-  grid-template-columns: 20px repeat(10, var(--cell));
-  grid-template-rows: 20px repeat(10, var(--cell));
-  gap: 2px;
+  grid-template-columns: var(--label) repeat(10, var(--cell));
+  grid-template-rows: var(--label) repeat(10, var(--cell));
+  gap: var(--gap);
   width: fit-content;
   margin: 0 auto;
   user-select: none;
+  flex-shrink: 0;
 }
-@media (max-width: 480px) {
-  .board { --cell: 26px; }
+@media (max-width: 600px) {
+  .board { --cell: 27px; --label: 17px; }
+}
+@media (max-width: 400px) {
+  .board { --cell: 24px; --label: 15px; --gap: 1px; }
+}
+@media (max-width: 340px) {
+  .board { --cell: 21px; --label: 13px; }
 }
 
 .cell {
@@ -277,6 +338,9 @@ input[type="text"]::placeholder { color: var(--steel-400); }
   border: none;
   color: var(--steel-400);
   font-size: 0.65rem;
+}
+@media (max-width: 400px) {
+  .cell.coord { font-size: 0.55rem; }
 }
 .cell.clickable { cursor: crosshair; }
 .cell.clickable:hover { background: var(--navy-600); }

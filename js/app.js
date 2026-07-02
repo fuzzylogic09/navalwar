@@ -9,7 +9,7 @@ import {
   getAuth, signInAnonymously, onAuthStateChanged
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 import {
-  getFirestore, collection, doc, setDoc, updateDoc, getDoc,
+  getFirestore, collection, doc, setDoc, updateDoc, getDoc, deleteDoc,
   onSnapshot, query, where, orderBy, serverTimestamp,
   writeBatch, deleteField
 } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
@@ -105,6 +105,7 @@ function boot() {
     $('#pilotName').textContent = playerName;
     showScreen('screen-menu');
     listenGameList();
+    listenMyGames();
   } else {
     showScreen('screen-name');
   }
@@ -122,7 +123,114 @@ $('#formName').addEventListener('submit', (e) => {
   $('#pilotName').textContent = playerName;
   showScreen('screen-menu');
   listenGameList();
+  listenMyGames();
 });
+
+// ============================================================
+// ÉCRAN : MENU — "Vos parties" (avec suppression) + liste des parties
+// ============================================================
+let unsubMyGamesHost = null, unsubMyGamesGuest = null;
+let myGamesMap = new Map(); // gameId -> data (fusion des deux requêtes ci-dessous)
+
+function listenMyGames() {
+  if (unsubMyGamesHost) unsubMyGamesHost();
+  if (unsubMyGamesGuest) unsubMyGamesGuest();
+  myGamesMap = new Map();
+
+  const applySnap = (snap) => {
+    snap.docChanges().forEach(change => {
+      if (change.type === 'removed') {
+        myGamesMap.delete(change.doc.id);
+      } else {
+        myGamesMap.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+      }
+    });
+    renderMyGames();
+  };
+
+  unsubMyGamesHost = onSnapshot(query(collection(db, 'games'), where('hostUid', '==', uid)), applySnap, (err) => console.error(err));
+  unsubMyGamesGuest = onSnapshot(query(collection(db, 'games'), where('guestUid', '==', uid)), applySnap, (err) => console.error(err));
+}
+
+const STATUS_LABEL = { waiting: 'En attente', placing: 'Placement', playing: 'En cours', finished: 'Terminée' };
+
+function renderMyGames() {
+  const list = $('#myGamesList');
+  const rows = Array.from(myGamesMap.values()).sort((a, b) => (b.createdAt?.seconds ?? 0) - (a.createdAt?.seconds ?? 0));
+  if (!rows.length) {
+    list.innerHTML = '<p class="empty-hint">Aucune partie créée ou rejointe pour l\'instant.</p>';
+    return;
+  }
+  list.innerHTML = '';
+  rows.forEach(g => {
+    const isHost = g.hostUid === uid;
+    const role = isHost ? 'Hôte' : 'Invité';
+    const opponent = isHost ? (g.guestName ?? 'en attente…') : g.hostName;
+    const row = document.createElement('div');
+    row.className = 'game-row';
+    row.innerHTML = `
+      <div class="game-row-info">
+        <span class="status-badge ${g.status}">${STATUS_LABEL[g.status] ?? g.status}</span>
+        <span class="game-row-host">${role} · vs ${escapeHtml(opponent)}</span>
+        <span class="game-row-meta">Secteur ${g.id.slice(0,6).toUpperCase()}</span>
+      </div>
+      <div class="row-actions"></div>
+    `;
+    const actions = row.querySelector('.row-actions');
+    renderDeleteControls(actions, g);
+    list.appendChild(row);
+  });
+}
+
+function renderDeleteControls(container, g) {
+  container.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className = 'btn btn-ghost';
+  btn.textContent = 'Supprimer';
+  btn.addEventListener('click', () => {
+    container.innerHTML = `
+      <div class="confirm-row">
+        <span class="confirm-text">Supprimer définitivement ?</span>
+        <button class="btn btn-ghost" data-act="cancel">Annuler</button>
+        <button class="btn btn-danger" data-act="confirm">Oui, supprimer</button>
+      </div>
+    `;
+    container.querySelector('[data-act="cancel"]').addEventListener('click', () => renderDeleteControls(container, g));
+    container.querySelector('[data-act="confirm"]').addEventListener('click', async (e) => {
+      e.target.disabled = true;
+      e.target.textContent = 'Suppression…';
+      await deleteGame(g);
+    });
+  });
+  container.appendChild(btn);
+}
+
+async function deleteGame(g) {
+  try {
+    // Nettoyage best-effort des sous-collections (peut échouer partiellement
+    // selon les règles de sécurité si l'autre joueur n'a jamais rien écrit).
+    const cleanups = [];
+    if (g.hostUid) {
+      cleanups.push(deleteDoc(doc(db, 'games', g.id, 'private', g.hostUid)).catch(() => {}));
+      cleanups.push(deleteDoc(doc(db, 'games', g.id, 'shots', g.hostUid)).catch(() => {}));
+    }
+    if (g.guestUid) {
+      cleanups.push(deleteDoc(doc(db, 'games', g.id, 'private', g.guestUid)).catch(() => {}));
+      cleanups.push(deleteDoc(doc(db, 'games', g.id, 'shots', g.guestUid)).catch(() => {}));
+    }
+    await Promise.all(cleanups);
+    await deleteDoc(doc(db, 'games', g.id));
+    toast('Partie supprimée');
+
+    // Si je suis en train de jouer cette partie-là, retour au menu.
+    if (currentGameId === g.id) {
+      returnToMenu();
+    }
+  } catch (err) {
+    console.error(err);
+    toast("Impossible de supprimer cette partie", true);
+  }
+}
 
 // ============================================================
 // ÉCRAN : MENU — liste des parties + création
@@ -227,8 +335,8 @@ function enterPlacement() {
   if (myRole === 'host') {
     // host attend qu'un adversaire rejoigne pour passer en 'placing' (déjà 'waiting')
     unsubGame = onSnapshot(doc(db, 'games', currentGameId), (snap) => {
+      if (!snap.exists()) { toast('Cette partie a été supprimée', true); returnToMenu(); return; }
       const g = snap.data();
-      if (!g) return;
       currentGameData = g;
       if (g.status === 'placing' && $('#placementStatus').dataset.waiting !== '1') {
         toast(`${g.guestName} a rejoint le secteur !`);
@@ -237,6 +345,7 @@ function enterPlacement() {
     });
   } else {
     unsubGame = onSnapshot(doc(db, 'games', currentGameId), (snap) => {
+      if (!snap.exists()) { toast('Cette partie a été supprimée', true); returnToMenu(); return; }
       currentGameData = snap.data();
       handlePostPlacementTransition(currentGameData);
     });
@@ -457,8 +566,8 @@ async function enterGame(g) {
   updateHud(g);
 
   unsubGame = onSnapshot(doc(db, 'games', currentGameId), async (snap) => {
+    if (!snap.exists()) { toast('Cette partie a été supprimée', true); returnToMenu(); return; }
     const data = snap.data();
-    if (!data) return;
     currentGameData = data;
     updateHud(data);
 
@@ -655,13 +764,19 @@ function showResult(g) {
   showScreen('screen-result');
 }
 
-$('#btnBackToMenu').addEventListener('click', () => {
+$('#btnBackToMenu').addEventListener('click', returnToMenu);
+
+function returnToMenu() {
+  if (unsubGame) unsubGame();
+  if (unsubMyShots) unsubMyShots();
+  if (unsubOppShots) unsubOppShots();
   currentGameId = null;
   currentGameData = null;
   myRole = null;
   showScreen('screen-menu');
   listenGameList();
-});
+  listenMyGames();
+}
 
 // ============================================================
 // PWA — enregistrement du service worker

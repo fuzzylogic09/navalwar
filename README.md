@@ -100,6 +100,12 @@ service cloud.firestore {
                         || (resource.data.guestUid == null
                             && request.resource.data.guestUid == request.auth.uid));
 
+      // Suppression : uniquement l'hôte ou l'invité de la partie
+      // (permet de "tuer" une partie plantée / abandonnée)
+      allow delete: if request.auth != null
+                    && (request.auth.uid == resource.data.hostUid
+                        || request.auth.uid == resource.data.guestUid);
+
       match /private/{ownerUid} {
         allow read, write: if request.auth != null && request.auth.uid == ownerUid;
       }
@@ -126,6 +132,23 @@ service cloud.firestore {
 > théorie modifier son propre client pour tricher sur ses propres résultats. Pour un jeu entre amis,
 > c'est un compromis raisonnable — c'est le prix à payer pour une architecture 100% front-end sans
 > serveur de confiance.
+
+### Supprimer une partie ("tuer" une partie plantée)
+
+Dans le menu, la section **"Vos parties"** liste toutes les parties que vous avez créées ou
+rejointes (peu importe leur statut). Un bouton **Supprimer** y est disponible, avec confirmation
+en deux étapes (clic sur "Supprimer" → le bouton se transforme en "Oui, supprimer" / "Annuler").
+
+La suppression :
+- efface le document `games/{id}` ainsi que, en best-effort, les sous-collections `private/` et
+  `shots/` des deux joueurs (ce nettoyage peut échouer partiellement pour un joueur qui n'a jamais
+  écrit de données — sans conséquence, Firestore ne facture pas les documents inexistants).
+- si l'autre joueur est en train de jouer cette partie au moment de la suppression, son client est
+  automatiquement renvoyé au menu avec un message ("Cette partie a été supprimée").
+
+**⚠️ Important** : si tu avais déjà publié une version antérieure des règles de sécurité (section
+précédente), il faut les republier avec le nouveau bloc `allow delete` ci-dessus — sans lui, le
+bouton "Supprimer" échouera avec une erreur de permissions.
 
 ### Index composite requis
 
