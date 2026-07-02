@@ -630,7 +630,7 @@ async function resolveIncomingShot(g) {
     } else {
       batch.update(gameRef, {
         pendingShot: null,
-        turn: attackerRole, // alternance stricte des tours
+        turn: myRole, // c'est maintenant au défenseur (moi) de tirer
       });
     }
     await batch.commit();
