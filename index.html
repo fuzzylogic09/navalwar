@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BATAILLE NAVALE — Console de tir</title>
+<title>BATTLESHIP — Fire Control</title>
 <meta name="theme-color" content="#0B1929">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
@@ -20,61 +20,64 @@
 <header class="topbar">
   <div class="brand">
     <span class="brand-blip"></span>
-    <span class="brand-text">BATAILLE&nbsp;NAVALE</span>
+    <span class="brand-text">BATTLESHIP</span>
   </div>
   <div class="pilot" id="pilotBadge">
-    <span class="pilot-label">PILOTE</span>
-    <span class="pilot-name" id="pilotName">—</span>
+    <span class="pilot-label">CAPTAIN</span>
+    <button type="button" id="pilotNameBtn" class="pilot-name-btn">— <span class="edit-hint">✎</span></button>
   </div>
 </header>
 
 <main id="app">
 
-  <!-- ====================== ÉCRAN : PSEUDO ====================== -->
+  <!-- ====================== SCREEN: NAME ====================== -->
   <section class="screen" id="screen-name" data-screen>
     <div class="panel panel-center">
       <p class="eyebrow">Identification</p>
-      <h1 class="title-lg">Entrez dans le poste de commandement</h1>
-      <p class="sub">Choisissez un nom de code. Il sera visible par votre adversaire.</p>
+      <h1 class="title-lg">Enter the command post</h1>
+      <p class="sub">Choose a call sign. It will be visible to your opponent.</p>
       <form id="formName" class="stack">
-        <input type="text" id="inputName" maxlength="18" placeholder="Ex. AMIRAL-7" autocomplete="off" required>
-        <button type="submit" class="btn btn-primary">Confirmer l'identité</button>
+        <input type="text" id="inputName" maxlength="18" placeholder="e.g. ADMIRAL-7" autocomplete="off" required>
+        <button type="submit" class="btn btn-primary">Confirm identity</button>
       </form>
       <p class="status-line" id="nameStatus"></p>
     </div>
   </section>
 
-  <!-- ====================== ÉCRAN : MENU / LOBBY ====================== -->
+  <!-- ====================== SCREEN: MENU / LOBBY ====================== -->
   <section class="screen" id="screen-menu" data-screen hidden>
     <div class="panel">
-      <p class="eyebrow">Salle des opérations</p>
-      <h1 class="title-lg">Choisissez votre manoeuvre</h1>
+      <p class="eyebrow">Operations room</p>
+      <h1 class="title-lg">Choose your move</h1>
       <div class="menu-actions">
         <button id="btnCreateGame" class="btn btn-primary btn-lg">
-          <span>Créer une partie</span>
-          <small>Ouvrir un secteur et attendre un adversaire</small>
+          <span>Create a game</span>
+          <small>Open a sector and wait for an opponent</small>
         </button>
       </div>
 
-      <div class="divider"><span>Vos parties</span></div>
+      <div class="divider"><span>My games</span></div>
       <div id="myGamesList" class="game-list">
-        <p class="empty-hint">Aucune partie créée ou rejointe pour l'instant.</p>
+        <p class="empty-hint">No games created or joined yet.</p>
       </div>
 
-      <div class="divider"><span>Parties en attente</span></div>
+      <div class="divider"><span>Open games</span></div>
 
       <div id="gameList" class="game-list">
-        <p class="empty-hint">Balayage du secteur en cours…</p>
+        <p class="empty-hint">Scanning the sector…</p>
       </div>
     </div>
   </section>
 
-  <!-- ====================== ÉCRAN : PLACEMENT ====================== -->
+  <!-- ====================== SCREEN: PLACEMENT ====================== -->
   <section class="screen" id="screen-placement" data-screen hidden>
     <div class="panel panel-wide">
-      <p class="eyebrow">Secteur <span id="placementGameCode">—</span></p>
-      <h1 class="title-lg">Déployez votre flotte</h1>
-      <p class="sub">Touchez une case pour poser le navire sélectionné. Bouton "Pivoter" pour changer l'orientation.</p>
+      <div class="panel-topline">
+        <p class="eyebrow">Sector <span id="placementGameCode">—</span></p>
+        <button id="btnMenuFromPlacement" class="btn btn-ghost btn-sm">◀ Menu</button>
+      </div>
+      <h1 class="title-lg">Deploy your fleet</h1>
+      <p class="sub">Tap a cell to place the selected ship. Use "Rotate" to change orientation.</p>
 
       <div class="placement-layout">
         <div class="board-wrap">
@@ -82,60 +85,64 @@
         </div>
 
         <div class="fleet-panel">
-          <h2 class="panel-subtitle">Flotte à déployer</h2>
+          <h2 class="panel-subtitle">Fleet to deploy</h2>
           <ul id="fleetList" class="fleet-list"></ul>
           <div class="fleet-controls">
-            <button id="btnRotate" class="btn btn-ghost">⟲ Pivoter</button>
-            <button id="btnRandomPlace" class="btn btn-ghost">🎲 Placement aléatoire</button>
-            <button id="btnResetPlace" class="btn btn-ghost">✕ Réinitialiser</button>
+            <button id="btnRotate" class="btn btn-ghost">⟲ Rotate</button>
+            <button id="btnRandomPlace" class="btn btn-ghost">🎲 Random placement</button>
+            <button id="btnResetPlace" class="btn btn-ghost">✕ Reset</button>
           </div>
-          <button id="btnReady" class="btn btn-primary btn-lg" disabled>Flotte prête — Attendre l'adversaire</button>
+          <button id="btnReady" class="btn btn-primary btn-lg" disabled>Fleet ready — wait for opponent</button>
           <p class="status-line" id="placementStatus"></p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ====================== ÉCRAN : PARTIE ====================== -->
+  <!-- ====================== SCREEN: GAME ====================== -->
   <section class="screen" id="screen-game" data-screen hidden>
     <div class="panel panel-wide">
+      <div class="panel-topline">
+        <p class="eyebrow">In progress</p>
+        <button id="btnMenuFromGame" class="btn btn-ghost btn-sm">◀ Menu</button>
+      </div>
       <div class="game-hud">
         <div class="hud-item">
-          <span class="hud-label">Secteur</span>
+          <span class="hud-label">Sector</span>
           <span class="hud-value" id="gameCode">—</span>
         </div>
         <div class="hud-item">
-          <span class="hud-label">Adversaire</span>
+          <span class="hud-label">Opponent</span>
           <span class="hud-value" id="opponentName">—</span>
         </div>
         <div class="hud-item turn-indicator" id="turnIndicator">
-          <span class="hud-label">Tour</span>
+          <span class="hud-label">Turn</span>
           <span class="hud-value" id="turnValue">—</span>
         </div>
       </div>
 
       <div class="boards-layout">
         <div class="board-col">
-          <h2 class="panel-subtitle">Tir — grille adverse</h2>
+          <h2 class="panel-subtitle">Fire — enemy grid</h2>
           <div id="attackBoard" class="board" data-size="10"></div>
         </div>
         <div class="board-col">
-          <h2 class="panel-subtitle">Votre flotte</h2>
+          <h2 class="panel-subtitle">Your fleet</h2>
           <div id="defenseBoard" class="board" data-size="10"></div>
         </div>
       </div>
 
-      <p class="status-line status-line-lg" id="gameStatus">Chargement…</p>
+      <p class="status-line status-line-lg" id="gameStatus">Loading…</p>
     </div>
   </section>
 
-  <!-- ====================== ÉCRAN : FIN DE PARTIE ====================== -->
+  <!-- ====================== SCREEN: RESULT ====================== -->
   <section class="screen" id="screen-result" data-screen hidden>
     <div class="panel panel-center">
-      <p class="eyebrow" id="resultEyebrow">Rapport de mission</p>
+      <p class="eyebrow" id="resultEyebrow">Mission report</p>
       <h1 class="title-lg" id="resultTitle">—</h1>
       <p class="sub" id="resultSub"></p>
-      <button id="btnBackToMenu" class="btn btn-primary btn-lg">Retour à la salle des opérations</button>
+      <button id="btnBackToMenu" class="btn btn-primary btn-lg">Back to operations room</button>
     </div>
   </section>
 

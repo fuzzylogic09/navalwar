@@ -100,7 +100,31 @@ body {
 
 .pilot { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
 .pilot-label { font-size: 0.6rem; letter-spacing: 0.12em; color: var(--steel-400); }
-.pilot-name { font-size: 0.85rem; color: var(--sonar-green); font-weight: 600; }
+.pilot-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--sonar-green);
+  font-weight: 600;
+}
+.pilot-name-btn .edit-hint { opacity: 0.5; font-size: 0.72rem; }
+.pilot-name-btn:hover .edit-hint { opacity: 1; }
+#pilotBadge input[type="text"] {
+  width: 130px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}
+
+.panel-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.btn-sm { padding: 6px 12px; font-size: 0.74rem; }
 
 #app { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
 @media (max-width: 400px) {
@@ -258,6 +282,8 @@ input[type="text"]::placeholder { color: var(--steel-400); }
 .status-badge.waiting { color: var(--sonar-green); border-color: var(--sonar-green-dim); }
 .status-badge.playing { color: var(--amber); border-color: var(--amber); }
 .status-badge.finished { color: var(--steel-400); }
+.status-badge.your-turn { color: var(--sonar-green); border-color: var(--sonar-green); animation: pulse 1.8s ease-in-out infinite; }
+.status-badge.opp-turn { color: var(--steel-400); border-color: var(--navy-600); }
 
 .btn-danger {
   background: var(--alert-red);

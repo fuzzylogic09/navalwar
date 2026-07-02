@@ -1,83 +1,95 @@
-# Bataille Navale — PWA multijoueur (Firebase)
+# Battleship — multiplayer PWA (Firebase)
 
-Jeu de bataille navale 100% front-end (HTML/CSS/JS vanilla), sans aucun serveur applicatif.
-Toute la logique tourne dans le navigateur de chaque joueur ; **Google Firebase (Firestore)** sert
-uniquement de base de données partagée et de "bus" temps réel entre les deux navigateurs.
+A 100% front-end (vanilla HTML/CSS/JS) game of Battleship, with no application server at all.
+All the game logic runs in each player's browser; **Google Firebase (Firestore)** is only used
+as a shared database and a real-time "bus" between the two browsers.
 
-- Créer une partie / rejoindre une partie en attente
-- Placement de la flotte (5 navires, règles classiques)
-- Tour par tour, mise à jour en temps réel via `onSnapshot`
-- Déployable sur GitHub Pages, installable en PWA sur Android (et desktop)
-
----
-
-## 1. Créer le projet Firebase
-
-1. Va sur https://console.firebase.google.com et clique **Ajouter un projet**.
-2. Donne-lui un nom (ex. `bataille-navale`), désactive Google Analytics si tu n'en as pas besoin, valide.
-3. Dans le menu de gauche : **Build > Authentication** → onglet **Sign-in method** → active le fournisseur **Anonyme**.
-   *(On utilise l'authentification anonyme : chaque joueur reçoit un identifiant unique sans créer de compte.)*
-4. Dans le menu de gauche : **Build > Firestore Database** → **Créer une base de données** → mode **production** → choisis une région proche de tes joueurs.
-5. Toujours dans Firestore, onglet **Règles**, colle les règles de sécurité de la section 3 ci-dessous, puis **Publier**.
-6. Retourne dans **Paramètres du projet** (icône engrenage) > onglet **Général** > section "Vos applications" > clique l'icône **Web `</>`**.
-7. Donne un surnom à l'app, **ne coche pas** Firebase Hosting (on utilise GitHub Pages), clique **Enregistrer l'application**.
-8. Firebase t'affiche un objet `firebaseConfig` — copie-le tel quel dans le fichier `js/firebase-config.js` du projet, à la place des valeurs `REPLACE_ME`.
-
-C'est tout côté console : pas de Cloud Functions, pas de backend à héberger.
+- Create a game / browse and join an open game
+- Fleet placement (5 ships, classic rules)
+- Turn-based play, synced in real time via `onSnapshot`
+- Play several games at once, with a "your turn" indicator and a vibration alert
+- Resume a game you left, or delete a stuck/abandoned one
+- Deployable on GitHub Pages, installable as a PWA on Android (and desktop)
 
 ---
 
-## 2. Modèle de données Firestore
+## 1. Create the Firebase project
+
+1. Go to https://console.firebase.google.com and click **Add project**.
+2. Give it a name (e.g. `battleship`), skip Google Analytics if you don't need it, confirm.
+3. Left menu: **Build > Authentication** → **Sign-in method** tab → enable the **Anonymous**
+   provider. (Each player gets a unique ID without creating an account.)
+4. Left menu: **Build > Firestore Database** → **Create database** → **production** mode → pick
+   a region close to your players.
+5. Still in Firestore, **Rules** tab → paste the security rules from section 3 below → **Publish**.
+6. Go back to **Project settings** (gear icon) > **General** tab > "Your apps" section > click the
+   **Web `</>`** icon.
+7. Give the app a nickname, **don't check** Firebase Hosting (we're using GitHub Pages), click
+   **Register app**.
+8. Firebase shows you a `firebaseConfig` object — copy it as-is into `js/firebase-config.js`,
+   replacing the `REPLACE_ME` placeholders.
+
+That's it on the console side: no Cloud Functions, no backend to host.
+
+---
+
+## 2. Firestore data model
 
 ```
-games/{gameId}                        → document PUBLIC (métadonnées de la partie)
+games/{gameId}                        → PUBLIC document (game metadata)
   hostUid, hostName
   guestUid, guestName
   status        "waiting" | "placing" | "playing" | "finished"
   turn          "host" | "guest" | null
   pendingShot   { by: uid, row, col } | null
   winner        "host" | "guest" | null
+  hostReady, guestReady   booleans — set once each player has placed their fleet
   createdAt
 
-games/{gameId}/private/{uid}          → sous-collection PRIVÉE (une par joueur)
-  grid          matrice 10x10 : 0 = vide, sinon id du navire occupant la case
-  ships         [{ id, name, size, hits, cells:[[r,c],...] }, ...]
+games/{gameId}/private/{uid}          → PRIVATE subcollection (one per player)
+  grid          10x10 flattened array: 0 = empty, otherwise the id of the ship on that cell
+  ships         [{ id, name, size, hits, cells:[{r,c},...] }, ...]
   ready         bool
 
-games/{gameId}/shots/{uid}            → sous-collection "tirs tirés par ce joueur"
-  grid          matrice 10x10 : 0 = pas tiré, "miss" | "hit" | "sunk"
+games/{gameId}/shots/{uid}            → "shots fired by this player" subcollection
+  grid          10x10 flattened array: 0 = not fired at, "miss" | "hit" | "sunk"
 ```
 
-### Pourquoi cette séparation (et pas juste 2 matrices dans un seul document) ?
+> Firestore doesn't support nested arrays (arrays of arrays), so grids are stored as a flat
+> 100-item array instead of `[[...],[...]]`, and ship cell coordinates as `{r,c}` objects instead
+> of `[r,c]` pairs. `js/app.js` converts back and forth automatically (`gridToFlat` /
+> `flatToGrid`, `cellsToObj` / `cellsFromObj`).
 
-Firestore ne peut pas cacher un *champ* d'un document à un utilisateur qui a le droit de lire ce
-document. Si les positions des bateaux des deux joueurs étaient dans le même document `games/{id}`,
-n'importe quel joueur pourrait lire la position des navires adverses directement dans la base
-(triche facile, même sans toucher à l'UI).
+### Why this split (instead of one document with two matrices)?
 
-En séparant :
-- `private/{uid}` — **seul le propriétaire `uid` peut lire/écrire** son propre plan de flotte.
-- `shots/{uid}` — l'historique des tirs de chaque joueur, lisible par les deux participants
-  (nécessaire pour afficher le brouillard de guerre côté attaquant), mais dont le contenu ne révèle
-  que "touché / raté / coulé", jamais la position des navires non touchés.
+Firestore can't hide a *field* of a document from a user who has read access to that document. If
+both players' ship positions lived in the same `games/{id}` document, any player could read the
+opponent's ship positions straight from the database (trivial cheating, no client hacking needed).
 
-### Qui écrit quoi ?
+By splitting things up:
+- `private/{uid}` — **only the owner `uid` can read/write** their own fleet layout.
+- `shots/{uid}` — each player's shot history, readable by both participants (needed to render the
+  fog of war on the attacker's side), but its content only ever reveals "hit / miss / sunk", never
+  the position of untouched ships.
 
-- **L'attaquant** écrit uniquement `pendingShot` sur le document public `games/{id}` (annonce "je tire ici").
-- **Le défenseur** (celui qui possède le plateau visé) est le seul à connaître la position de ses
-  navires : c'est donc lui qui calcule le résultat (touché/raté/coulé) et qui écrit :
-  - la mise à jour de ses propres `ships[].hits` dans `private/{sonUid}`
-  - le résultat dans `shots/{uidDeLAttaquant}`
-  - le changement de tour + `pendingShot: null` (+ `winner` si la partie est terminée) dans `games/{id}`
+### Who writes what?
 
-  Ces trois écritures sont envoyées en une seule transaction groupée (`writeBatch`) pour rester
-  cohérentes même en cas de coupure réseau.
+- **The attacker** only writes `pendingShot` on the public `games/{id}` document ("I'm firing
+  here").
+- **The defender** (the owner of the targeted board) is the only one who knows their own ship
+  positions, so they compute the result (hit/miss/sunk) and write:
+  - the updated `ships[].hits` in their own `private/{theirUid}`
+  - the result in `shots/{attackerUid}`
+  - the turn change + `pendingShot: null` (+ `winner` if the game just ended) in `games/{id}`
+
+  These three writes are sent as a single `writeBatch` to stay consistent even across a flaky
+  connection.
 
 ---
 
-## 3. Règles de sécurité Firestore
+## 3. Firestore security rules
 
-À coller dans **Firestore > Règles** :
+Paste this into **Firestore > Rules**:
 
 ```
 rules_version = '2';
@@ -87,21 +99,21 @@ service cloud.firestore {
     match /games/{gameId} {
       allow read: if request.auth != null;
 
-      // Création : uniquement en tant qu'hôte de sa propre partie
+      // Create: only as the host of your own game
       allow create: if request.auth != null
                     && request.resource.data.hostUid == request.auth.uid
                     && request.resource.data.status == 'waiting';
 
-      // Mise à jour : uniquement les deux joueurs de la partie
+      // Update: only the two players in the game
       allow update: if request.auth != null
                     && (request.auth.uid == resource.data.hostUid
                         || request.auth.uid == resource.data.guestUid
-                        // ou un joueur qui rejoint une partie encore libre
+                        // or a player joining a still-open game
                         || (resource.data.guestUid == null
                             && request.resource.data.guestUid == request.auth.uid));
 
-      // Suppression : uniquement l'hôte ou l'invité de la partie
-      // (permet de "tuer" une partie plantée / abandonnée)
+      // Delete: only the host or the guest of the game
+      // (lets you "kill" a stuck / abandoned game)
       allow delete: if request.auth != null
                     && (request.auth.uid == resource.data.hostUid
                         || request.auth.uid == resource.data.guestUid);
@@ -111,13 +123,13 @@ service cloud.firestore {
       }
 
       match /shots/{ownerUid} {
-        // Lu par les deux joueurs de la partie (fog of war affiché des deux côtés)
+        // Read by both players in the game (fog of war shown on both sides)
         allow read: if request.auth != null
                     && (request.auth.uid == get(/databases/$(database)/documents/games/$(gameId)).data.hostUid
                         || request.auth.uid == get(/databases/$(database)/documents/games/$(gameId)).data.guestUid);
 
-        // Écrit soit par son propriétaire (initialisation à la grille vide),
-        // soit par l'autre joueur de la partie (qui résout un tir en tant que défenseur)
+        // Written either by its owner (initializing the empty grid),
+        // or by the other player in the game (resolving a shot as defender)
         allow write: if request.auth != null
                     && (request.auth.uid == get(/databases/$(database)/documents/games/$(gameId)).data.hostUid
                         || request.auth.uid == get(/databases/$(database)/documents/games/$(gameId)).data.guestUid);
@@ -127,92 +139,123 @@ service cloud.firestore {
 }
 ```
 
-> Ces règles limitent déjà pas mal la triche (impossible de lire le plan de bataille adverse), mais
-> comme toute la logique de résolution du tir tourne côté client, un joueur malveillant pourrait en
-> théorie modifier son propre client pour tricher sur ses propres résultats. Pour un jeu entre amis,
-> c'est un compromis raisonnable — c'est le prix à payer pour une architecture 100% front-end sans
-> serveur de confiance.
+> These rules already prevent a good chunk of cheating (you can't read the opponent's ship
+> layout), but since all shot-resolution logic runs client-side, a malicious player could in
+> theory tamper with their own client to lie about their own results. For a game played with
+> friends, that's a reasonable trade-off — it's the price of a 100% front-end architecture with no
+> trusted server.
 
-### Supprimer une partie ("tuer" une partie plantée)
+### Required composite index
 
-Dans le menu, la section **"Vos parties"** liste toutes les parties que vous avez créées ou
-rejointes (peu importe leur statut). Un bouton **Supprimer** y est disponible, avec confirmation
-en deux étapes (clic sur "Supprimer" → le bouton se transforme en "Oui, supprimer" / "Annuler").
-
-La suppression :
-- efface le document `games/{id}` ainsi que, en best-effort, les sous-collections `private/` et
-  `shots/` des deux joueurs (ce nettoyage peut échouer partiellement pour un joueur qui n'a jamais
-  écrit de données — sans conséquence, Firestore ne facture pas les documents inexistants).
-- si l'autre joueur est en train de jouer cette partie au moment de la suppression, son client est
-  automatiquement renvoyé au menu avec un message ("Cette partie a été supprimée").
-
-**⚠️ Important** : si tu avais déjà publié une version antérieure des règles de sécurité (section
-précédente), il faut les republier avec le nouveau bloc `allow delete` ci-dessus — sans lui, le
-bouton "Supprimer" échouera avec une erreur de permissions.
-
-### Index composite requis
-
-La liste des parties en attente utilise une requête `where('status','==','waiting')` combinée à
-`orderBy('createdAt','desc')`. Firestore te demandera de créer un **index composite** la première
-fois que tu lances l'app : un lien apparaîtra directement dans la console du navigateur (erreur
-`FirebaseError: The query requires an index...`) — clique dessus, Firebase pré-remplit tout, il
-suffit de valider.
+The open-games list uses a `where('status','==','waiting')` query combined with
+`orderBy('createdAt','desc')`. Firestore will ask you to create a **composite index** the first
+time you run the app: a link appears directly in the browser console (error
+`FirebaseError: The query requires an index...`) — click it, Firebase pre-fills everything, just
+confirm.
 
 ---
 
-## 4. Lancer le projet en local
+## 4. Run locally
 
-Comme le JS utilise des modules ES (`import`), il faut servir les fichiers via HTTP (pas de
-`file://`). Le plus simple :
+Since the JS uses ES modules (`import`), files must be served over HTTP (not `file://`):
 
 ```bash
 cd battleship-pwa
 python3 -m http.server 8080
-# puis ouvre http://localhost:8080
+# then open http://localhost:8080
 ```
 
-Ouvre deux onglets (ou un onglet + navigation privée) pour simuler deux joueurs.
+Open two tabs (or one tab + a private window) to simulate two players.
 
 ---
 
-## 5. Déployer sur GitHub Pages
+## 5. Deploy on GitHub Pages
 
-1. Crée un dépôt GitHub (ex. `bataille-navale`) et pousse tout le contenu du dossier
-   `battleship-pwa/` à la racine du dépôt.
-2. Renseigne bien `js/firebase-config.js` avec tes vraies clés **avant** de pousser (ces clés
-   Firebase "Web" ne sont pas secrètes en soi — c'est la Configuration API publique — la vraie
-   protection vient des règles Firestore de la section 3).
-3. Dans le dépôt GitHub : **Settings > Pages** → Source : **Deploy from a branch** → Branch :
-   `main` / dossier `/ (root)` → **Save**.
-4. Au bout de 1-2 minutes, ton jeu est en ligne sur
-   `https://<ton-user>.github.io/bataille-navale/`.
-5. Ajoute cette URL dans **Firebase Console > Authentication > Settings > Authorized domains**
-   pour autoriser l'authentification anonyme depuis GitHub Pages.
-
----
-
-## 6. Installer en PWA sur Android
-
-Une fois le site en ligne (HTTPS obligatoire — GitHub Pages le fournit automatiquement) :
-
-1. Ouvre l'URL dans Chrome sur Android.
-2. Menu **⋮ > Ajouter à l'écran d'accueil** (ou une bannière d'installation apparaît automatiquement).
-3. L'app s'installe avec l'icône radar fournie dans `icons/`, s'ouvre en plein écran (`display: standalone`)
-   et le `service-worker.js` met en cache la coquille de l'app pour un démarrage rapide même avec
-   une connexion faible (le contenu de partie, lui, nécessite toujours une connexion à Firestore).
-
-Pour la remplacer par tes propres icônes, régénère simplement
-`icons/icon-192.png` et `icons/icon-512.png` (mêmes dimensions, fond opaque recommandé).
+1. Create a GitHub repo (e.g. `battleship`) and push the whole `battleship-pwa/` folder content
+   to the repo root.
+2. Fill in `js/firebase-config.js` with your real keys **before** pushing (Firebase "Web" keys
+   aren't secret by themselves — that's the public Configuration API — the real protection comes
+   from the Firestore security rules in section 3).
+3. In the repo: **Settings > Pages** → Source: **Deploy from a branch** → Branch: `main` /
+   folder `/ (root)` → **Save**.
+4. After 1-2 minutes, the game is live at `https://<your-user>.github.io/battleship/`.
+5. Add that URL under **Firebase Console > Authentication > Settings > Authorized domains** to
+   allow anonymous auth from GitHub Pages.
 
 ---
 
-## 7. Aller plus loin
+## 6. Install as a PWA on Android
 
-- **Rejouer / rematch** : ajouter un bouton qui crée une nouvelle partie et redirige les deux
-  joueurs — nécessite un petit signal supplémentaire dans `games/{id}` (ex. `rematchOf`).
-  Nettoyage des vieilles parties : une Cloud Function planifiée (optionnelle, hors périmètre "100% front-end") ou un TTL Firestore sur `createdAt` peuvent purger les parties abandonnées.
-- **Règle "rejouer après un tir réussi"** : dans `resolveIncomingShot()` (`js/app.js`), il suffit de
-  ne pas changer `turn` quand `result !== 'miss'`.
-- **Coup interdit hors tour** : déjà bloqué côté UI (case non cliquable) — pour un vrai blindage,
-  ajouter une règle Firestore vérifiant `resource.data.turn` avant d'autoriser l'écriture de
-  `pendingShot`.
+Once the site is live (HTTPS required — GitHub Pages provides it automatically):
+
+1. Open the URL in Chrome on Android.
+2. Menu **⋮ > Add to Home screen** (or an install banner shows up automatically).
+3. The app installs with the radar icon from `icons/`, opens full-screen (`display: standalone`),
+   and `service-worker.js` caches the app shell for a fast start even on a weak connection (game
+   content itself always needs a live connection to Firestore).
+
+To swap in your own icons, just regenerate `icons/icon-192.png` and `icons/icon-512.png` (same
+dimensions, opaque background recommended).
+
+---
+
+## 7. Feature notes
+
+### Deleting a game ("killing" a stuck game)
+
+In the menu, the **"My games"** section lists every game you created or joined, regardless of
+status. A **Delete** button is available there, with two-step confirmation (click "Delete" → it
+turns into "Yes, delete" / "Cancel").
+
+Deleting a game removes the `games/{id}` document plus, best-effort, the `private/` and `shots/`
+subcollections of both players. If the other player is actively in that game when it's deleted,
+their client is automatically sent back to the menu with a notice.
+
+### Resuming a game
+
+Firebase's anonymous auth keeps your identity in the same browser as long as you don't clear its
+data — that's exactly why your games show up under "My games" in the first place. A **Resume**
+button lets you jump straight back into any non-finished game: back onto the battle screen if
+it's in progress, or back to your saved fleet if you're still in the placement phase.
+
+This covers "I closed the tab and I'm coming back later, same device/browser" — by far the most
+common case. Resuming from a **different** device/browser isn't supported: that would require a
+real account system (e.g. Google Sign-In instead of anonymous auth) to safely transfer identity,
+since a player's ship layout is only ever readable by their own Firebase Auth `uid`.
+
+### Playing several games at once
+
+Nothing special to set up — since Firestore listeners for all "my games" run continuously in the
+background regardless of which screen you're on, you can freely bounce between games via
+"Resume". Each row in "My games" shows a live **Your turn** / **Opponent's turn** badge for games
+in progress, so you always know where you're needed.
+
+### Turn notifications (vibration)
+
+The moment it becomes your turn in *any* of your games — even one you're not currently looking
+at — the app triggers a short vibration pattern (on devices/browsers that support the Vibration
+API) plus a toast naming the opponent. This only fires on the transition from "not your turn" to
+"your turn", not on every snapshot update, so you won't get buzzed repeatedly while waiting.
+
+### Renaming your captain
+
+Click your name in the top-right corner to edit it inline (Enter to confirm, Esc to cancel). The
+new name is saved locally and also pushed to any of your active games so your opponent sees the
+update.
+
+---
+
+## 8. Going further
+
+- **Rematch**: add a button that creates a new game and redirects both players — needs a small
+  extra signal on `games/{id}` (e.g. `rematchOf`). Cleaning up old abandoned games: an optional
+  scheduled Cloud Function, or a Firestore TTL policy on `createdAt`, could purge them
+  automatically (outside the "100% front-end" scope of this project).
+- **"Fire again after a hit" rule**: in `resolveIncomingShot()` (`js/app.js`), simply skip
+  changing `turn` when `result !== 'miss'`.
+- **Blocking out-of-turn shots at the rules level**: already blocked in the UI (the cell isn't
+  clickable) — for real enforcement, add a Firestore rule checking `resource.data.turn` before
+  allowing a `pendingShot` write.
+- **Cross-device resume**: switch from anonymous auth to a real sign-in method (Google, email
+  link, etc.) so a player's `uid` — and therefore their private board — stays stable across
+  devices.
